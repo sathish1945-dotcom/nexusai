@@ -8,8 +8,8 @@ import {
   PluginToolDefinition,
   ToolSensitivity,
   ToolExecutionContext
-} from './pluginRegistry';
-import { isUserConnectorConnected } from './integrationStore';
+} from './pluginRegistry.js';
+import { isUserConnectorConnected } from './integrationStore.js';
 import {
   dbGetIdempotency,
   dbSetIdempotency,
@@ -19,8 +19,8 @@ import {
   dbCheckUserAiUsage,
   dbIncrementUserAiUsage,
   DbAuditLog
-} from './db';
-import { logger } from './logger';
+} from './db.js';
+import { logger } from './logger.js';
 
 export type ToolLifecycleState =
   | 'requested'

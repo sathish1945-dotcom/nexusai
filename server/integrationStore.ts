@@ -1,5 +1,5 @@
 import crypto from 'crypto';
-import { encryptString, decryptString } from './crypto';
+import { encryptString, decryptString } from './crypto.js';
 import {
   dbStoreUserIntegration,
   dbGetUserIntegration,
@@ -10,8 +10,8 @@ import {
   dbVerifyOAuthState,
   DbUserIntegration,
   ConnectionStatus
-} from './db';
-import { logger } from './logger';
+} from './db.js';
+import { logger } from './logger.js';
 
 export interface ConnectorPublicStatus {
   id: string;

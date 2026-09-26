@@ -9,8 +9,8 @@ import {
   executeToolSecurely,
   getAllowlistedOpenRouterTools,
   getAuditLogs
-} from './server/toolExecutor';
-import { CONNECTORS, validateSafeWebhookUrl } from './server/pluginRegistry';
+} from './server/toolExecutor.js';
+import { CONNECTORS, validateSafeWebhookUrl } from './server/pluginRegistry.js';
 import {
   generateOAuthState,
   verifyOAuthState,
@@ -18,14 +18,14 @@ import {
   revokeUserConnectorToken,
   getUserConnectorAuthDetails,
   isUserConnectorConnected
-} from './server/integrationStore';
+} from './server/integrationStore.js';
 import {
   sessionMiddleware,
   requireAuth,
   signSessionToken,
   hashPassword,
   verifyPassword
-} from './server/auth';
+} from './server/auth.js';
 import {
   dbCreateUser,
   dbGetUserById,
@@ -38,9 +38,9 @@ import {
   dbIncrementUserAiUsage,
   dbStoreUserIntegration,
   dbVerifyOAuthState
-} from './server/db';
-import { encryptString } from './server/crypto';
-import { logger } from './server/logger';
+} from './server/db.js';
+import { encryptString } from './server/crypto.js';
+import { logger } from './server/logger.js';
 
 // Load environment variables from .env
 dotenv.config();
@@ -413,7 +413,7 @@ app.get('/api/integrations/google/callback', async (req: Request, res: Response)
 
   const stateStr = String(state);
   // Verify state and extract userId & connectorId from DB
-  const db = await (await import('./server/db')).getDb();
+  const db = await (await import('./server/db.js')).getDb();
   const stateRow = await db.prepare('DELETE FROM oauth_states WHERE state = ? AND created_at > ? RETURNING user_id, connector_id;').get(stateStr, Date.now() - 10 * 60 * 1000) as any;
 
   if (!stateRow) {

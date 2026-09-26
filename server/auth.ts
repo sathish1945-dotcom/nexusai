@@ -1,8 +1,8 @@
 import crypto from 'crypto';
 import { Request, Response, NextFunction } from 'express';
 import dotenv from 'dotenv';
-import { dbGetUserById, dbCreateUser } from './db';
-import { logger } from './logger';
+import { dbGetUserById, dbCreateUser } from './db.js';
+import { logger } from './logger.js';
 
 dotenv.config();
 

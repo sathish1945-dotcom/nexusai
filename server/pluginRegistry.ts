@@ -1,7 +1,7 @@
 import { z } from 'zod';
-import { getUserConnectorAccessToken } from './integrationStore';
-import { dbGetUserWebhookById, dbGetUserWebhooks } from './db';
-import { logger } from './logger';
+import { getUserConnectorAccessToken } from './integrationStore.js';
+import { dbGetUserWebhookById, dbGetUserWebhooks } from './db.js';
+import { logger } from './logger.js';
 
 // =============================================================================
 // Plugin & Tool Interfaces

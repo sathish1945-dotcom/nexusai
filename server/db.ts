@@ -1,7 +1,7 @@
 import { createClient, type Client, type InValue } from '@libsql/client';
 import path from 'path';
 import fs from 'fs';
-import { logger } from './logger';
+import { logger } from './logger.js';
 
 export interface DbUser {
   id: string;
