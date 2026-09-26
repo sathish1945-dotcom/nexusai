@@ -104,10 +104,10 @@ export function getDb(): Promise<AsyncDatabase> {
  return dbPromise;
 }
 async function initializeDb(): Promise<AsyncDatabase> {
- const remoteUrl = process.env.TURSO_DATABASE_URL;
+ const remoteUrl = process.env.NEXUS_TURSO_DATABASE_URL || process.env.TURSO_DATABASE_URL;
  if (process.env.VERCEL && !remoteUrl) throw new Error('TURSO_DATABASE_URL is required on Vercel');
  if (!remoteUrl) fs.mkdirSync(path.resolve(process.cwd(), 'data'), { recursive: true });
- const client = createClient({ url: remoteUrl || 'file:' + path.resolve(process.cwd(), 'data/nexusai.db'), authToken: process.env.TURSO_AUTH_TOKEN });
+ const client = createClient({ url: remoteUrl || 'file:' + path.resolve(process.cwd(), 'data/nexusai.db'), authToken: process.env.NEXUS_TURSO_AUTH_TOKEN || process.env.TURSO_AUTH_TOKEN });
  try {
   // 1. Users table (Multi-tenant authentication)
   await client.executeMultiple(`
