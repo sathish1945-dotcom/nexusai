@@ -116,7 +116,7 @@ export function verifyPassword(password: string, storedHash: string): boolean {
  * Express middleware that extracts authenticated session from Authorization header or cookie.
  * Supports both permanent users and automatic guest sessions for frictionless instant use.
  */
-export function sessionMiddleware(req: Request, _res: Response, next: NextFunction): void {
+export async function sessionMiddleware(req: Request, _res: Response, next: NextFunction): Promise<void> {
   const authHeader = req.headers.authorization;
   let token: string | null = null;
 
@@ -130,7 +130,7 @@ export function sessionMiddleware(req: Request, _res: Response, next: NextFuncti
   if (token) {
     const payload = verifySessionToken(token);
     if (payload) {
-      const user = dbGetUserById(payload.userId);
+      const user = (await dbGetUserById(payload.userId));
       if (user) {
         req.userId = user.id;
         req.user = {

@@ -1,3 +1,4 @@
+import 'express-async-errors';
 import express, { Request, Response } from 'express';
 import dotenv from 'dotenv';
 import path from 'path';
@@ -133,16 +134,16 @@ app.use(sessionMiddleware);
 // =============================================================================
 // Helper: Ensure User Session (Auto-creates guest session if not authenticated)
 // =============================================================================
-function ensureUserSession(req: Request): string {
+async function ensureUserSession(req: Request): Promise<string> {
   if (req.userId) return req.userId;
 
   // Generate anonymous guest user
   const guestId = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const user = dbCreateUser({
+  const user = (await dbCreateUser({
     id: guestId,
     displayName: 'Guest User',
     isAnonymous: true
-  });
+  }));
   req.userId = user.id;
   req.user = {
     id: user.id,
@@ -157,7 +158,7 @@ function ensureUserSession(req: Request): string {
 // =============================================================================
 
 // Register with email and password
-app.post('/api/auth/register', (req: Request, res: Response) => {
+app.post('/api/auth/register', async (req: Request, res: Response) => {
   const { email, password, displayName } = req.body || {};
 
   if (!email || typeof email !== 'string' || !email.includes('@')) {
@@ -167,20 +168,20 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
     return res.status(400).json({ error: 'Password must be at least 6 characters.' });
   }
 
-  const existing = dbGetUserByEmail(email);
+  const existing = (await dbGetUserByEmail(email));
   if (existing) {
     return res.status(409).json({ error: 'An account with this email already exists. Please log in.' });
   }
 
   const userId = `usr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const passwordHash = hashPassword(password);
-  const user = dbCreateUser({
+  const user = (await dbCreateUser({
     id: userId,
     email: email.toLowerCase().trim(),
     passwordHash,
     displayName: displayName?.trim() || email.split('@')[0],
     isAnonymous: false
-  });
+  }));
 
   const token = signSessionToken({ userId: user.id, email: user.email, isAnonymous: false });
   logger.info('Security', `New user registered: ${user.email} (${user.id})`);
@@ -198,14 +199,14 @@ app.post('/api/auth/register', (req: Request, res: Response) => {
 });
 
 // Login with email and password
-app.post('/api/auth/login', (req: Request, res: Response) => {
+app.post('/api/auth/login', async (req: Request, res: Response) => {
   const { email, password } = req.body || {};
 
   if (!email || !password) {
     return res.status(400).json({ error: 'Email and password are required.' });
   }
 
-  const user = dbGetUserByEmail(email);
+  const user = (await dbGetUserByEmail(email));
   if (!user || !user.passwordHash || !verifyPassword(password, user.passwordHash)) {
     return res.status(401).json({ error: 'Invalid email or password.' });
   }
@@ -226,13 +227,13 @@ app.post('/api/auth/login', (req: Request, res: Response) => {
 });
 
 // Fast guest session for frictionless public onboarding
-app.post('/api/auth/guest', (_req: Request, res: Response) => {
+app.post('/api/auth/guest', async (_req: Request, res: Response) => {
   const guestId = `guest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-  const user = dbCreateUser({
+  const user = (await dbCreateUser({
     id: guestId,
     displayName: 'Guest User',
     isAnonymous: true
-  });
+  }));
 
   const token = signSessionToken({ userId: user.id, isAnonymous: true });
   logger.info('Security', `Guest session generated: ${user.id}`);
@@ -268,16 +269,16 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
       return res.status(400).json({ error: 'No email returned from Google profile.' });
     }
 
-    let user = dbGetUserByEmail(userData.email);
+    let user = (await dbGetUserByEmail(userData.email));
     if (!user) {
       const userId = `usr_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
-      user = dbCreateUser({
+      user = (await dbCreateUser({
         id: userId,
         email: userData.email,
         displayName: userData.name || userData.email.split('@')[0],
         avatarUrl: userData.picture,
         isAnonymous: false
-      });
+      }));
     }
 
     const token = signSessionToken({ userId: user.id, email: user.email, isAnonymous: false });
@@ -298,10 +299,10 @@ app.post('/api/auth/google', async (req: Request, res: Response) => {
 });
 
 // Current User Profile & AI Usage Metrics
-app.get('/api/auth/me', (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
-  const user = dbGetUserById(userId);
-  const usage = dbCheckUserAiUsage(userId);
+app.get('/api/auth/me', async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
+  const user = (await dbGetUserById(userId));
+  const usage = (await dbCheckUserAiUsage(userId));
 
   return res.json({
     authenticated: Boolean(req.user && !req.user.isAnonymous),
@@ -320,9 +321,9 @@ app.get('/api/auth/me', (req: Request, res: Response) => {
 // =============================================================================
 
 // GET /api/integrations - List connectors with user-specific connection status
-app.get('/api/integrations', (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
-  const userIntegrations = dbGetUserIntegrations(userId);
+app.get('/api/integrations', async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
+  const userIntegrations = (await dbGetUserIntegrations(userId));
   const integrationMap = new Map(userIntegrations.map((i) => [i.provider, i]));
 
   const connectorsList = Object.values(CONNECTORS).map((c) => {
@@ -361,20 +362,20 @@ app.get('/api/integrations', (req: Request, res: Response) => {
 });
 
 // GET /api/integrations/oauth-state - Generate CSRF state token tied to this user
-app.get('/api/integrations/oauth-state', (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+app.get('/api/integrations/oauth-state', async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
   const connectorId = String(req.query.connectorId || '');
   if (!connectorId || !CONNECTORS[connectorId]) {
     return res.status(400).json({ error: 'Valid connectorId is required.' });
   }
 
-  const state = generateOAuthState(userId, connectorId);
+  const state = (await generateOAuthState(userId, connectorId));
   return res.json({ state });
 });
 
 // GET /api/integrations/google/oauth-url - Generate standard OAuth consent redirect URL
-app.get('/api/integrations/google/oauth-url', (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+app.get('/api/integrations/google/oauth-url', async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
   const connectorId = String(req.query.connectorId || 'gmail');
   const connector = CONNECTORS[connectorId];
 
@@ -387,8 +388,8 @@ app.get('/api/integrations/google/oauth-url', (req: Request, res: Response) => {
     return res.status(500).json({ error: 'Google Client ID is not configured.' });
   }
 
-  const state = generateOAuthState(userId, connectorId);
-  const appUrl = process.env.APP_URL || 'http://localhost:3000';
+  const state = (await generateOAuthState(userId, connectorId));
+  const appUrl = process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000');
   const redirectUri = `${appUrl}/api/integrations/google/callback`;
   const scopes = encodeURIComponent(connector.requiredScopes.join(' '));
 
@@ -404,7 +405,7 @@ app.get('/api/integrations/google/oauth-url', (req: Request, res: Response) => {
 // GET /api/integrations/google/callback - Standard OAuth redirect callback handler
 app.get('/api/integrations/google/callback', async (req: Request, res: Response) => {
   const { code, state, error } = req.query;
-  const appUrl = process.env.APP_URL || 'http://localhost:3000';
+  const appUrl = process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000');
 
   if (error || !code || !state) {
     return res.redirect(`${appUrl}/?oauth_error=${encodeURIComponent(String(error || 'Authorization was cancelled'))}`);
@@ -412,14 +413,13 @@ app.get('/api/integrations/google/callback', async (req: Request, res: Response)
 
   const stateStr = String(state);
   // Verify state and extract userId & connectorId from DB
-  const db = (await import('./server/db')).getDb();
-  const stateRow = db.prepare('SELECT user_id, connector_id FROM oauth_states WHERE state = ?;').get(stateStr) as any;
+  const db = await (await import('./server/db')).getDb();
+  const stateRow = await db.prepare('DELETE FROM oauth_states WHERE state = ? AND created_at > ? RETURNING user_id, connector_id;').get(stateStr, Date.now() - 10 * 60 * 1000) as any;
 
   if (!stateRow) {
     return res.redirect(`${appUrl}/?oauth_error=${encodeURIComponent('Invalid or expired OAuth state')}`);
   }
 
-  db.prepare('DELETE FROM oauth_states WHERE state = ?;').run(stateStr);
   const { user_id: userId, connector_id: connectorId } = stateRow;
 
   const clientId = googleClientId || process.env.GOOGLE_CLIENT_ID;
@@ -467,7 +467,7 @@ app.get('/api/integrations/google/callback', async (req: Request, res: Response)
 
 // POST /api/integrations/:connectorId/connect - Connect via verified token (Firebase popup or client token)
 app.post('/api/integrations/:connectorId/connect', async (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+  const userId = (await ensureUserSession(req));
   const { connectorId } = req.params;
   const { accessToken, refreshToken, state, scopes, expiresIn } = req.body || {};
 
@@ -479,7 +479,7 @@ app.post('/api/integrations/:connectorId/connect', async (req: Request, res: Res
   }
 
   // Verify OAuth CSRF state if provided
-  if (state && !verifyOAuthState(state, userId, connectorId)) {
+  if (state && !(await verifyOAuthState(state, userId, connectorId))) {
     return res.status(403).json({ error: 'Invalid or expired OAuth state token (CSRF check failed).' });
   }
 
@@ -507,7 +507,7 @@ app.post('/api/integrations/:connectorId/connect', async (req: Request, res: Res
 
 // POST /api/integrations/:connectorId/disconnect - Disconnect and revoke user credentials
 app.post('/api/integrations/:connectorId/disconnect', async (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+  const userId = (await ensureUserSession(req));
   const { connectorId } = req.params;
 
   await revokeUserConnectorToken(userId, connectorId);
@@ -515,8 +515,8 @@ app.post('/api/integrations/:connectorId/disconnect', async (req: Request, res: 
 });
 
 // POST /api/integrations/:connectorId/api-key - Connect API-key based integrations (GitHub, Slack, Discord, Notion)
-app.post('/api/integrations/:connectorId/api-key', (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+app.post('/api/integrations/:connectorId/api-key', async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
   const { connectorId } = req.params;
   const { apiKey } = req.body || {};
 
@@ -531,14 +531,14 @@ app.post('/api/integrations/:connectorId/api-key', (req: Request, res: Response)
   const encryptedKey = encryptString(apiKey.trim());
   const maskedKey = '••••••••' + apiKey.trim().slice(-4);
 
-  dbStoreUserIntegration({
+  (await dbStoreUserIntegration({
     userId,
     provider: connectorId,
     externalAccountId: maskedKey,
     encryptedAccessToken: encryptedKey,
     scopes: CONNECTORS[connectorId].requiredScopes,
     connectionStatus: 'connected'
-  });
+  }));
 
   logger.info('Vault', `API Key integration stored for user "${userId}" connector "${connectorId}"`);
   return res.json({
@@ -552,14 +552,14 @@ app.post('/api/integrations/:connectorId/api-key', (req: Request, res: Response)
 // User Webhooks Endpoints (SSRF Protected & Multi-User)
 // =============================================================================
 
-app.get('/api/webhooks', (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
-  const webhooks = dbGetUserWebhooks(userId);
+app.get('/api/webhooks', async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
+  const webhooks = (await dbGetUserWebhooks(userId));
   return res.json({ webhooks });
 });
 
-app.post('/api/webhooks', (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+app.post('/api/webhooks', async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
   const { name, targetUrl, environment } = req.body || {};
 
   if (!name || typeof name !== 'string' || name.trim().length < 2) {
@@ -577,20 +577,20 @@ app.post('/api/webhooks', (req: Request, res: Response) => {
   }
 
   const id = `wh_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`;
-  const webhook = dbStoreUserWebhook({
+  const webhook = (await dbStoreUserWebhook({
     id,
     userId,
     name: name.trim(),
     targetUrl: targetUrl.trim(),
     environment: environment === 'production' ? 'production' : 'staging'
-  });
+  }));
 
   return res.json({ success: true, webhook });
 });
 
-app.delete('/api/webhooks/:id', (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
-  const deleted = dbDeleteUserWebhook(userId, req.params.id);
+app.delete('/api/webhooks/:id', async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
+  const deleted = (await dbDeleteUserWebhook(userId, req.params.id));
   return res.json({ success: deleted });
 });
 
@@ -600,7 +600,7 @@ app.delete('/api/webhooks/:id', (req: Request, res: Response) => {
 
 // POST /api/tools/execute
 app.post('/api/tools/execute', requireAuth, async (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+  const userId = (await ensureUserSession(req));
   const { toolName, arguments: toolArgs, confirmed, idempotencyKey } = req.body || {};
   const clientIp =
     (req.headers['x-forwarded-for'] as string)?.split(',')[0]?.trim() ||
@@ -629,12 +629,12 @@ app.post('/api/tools/execute', requireAuth, async (req: Request, res: Response) 
 });
 
 // GET /api/tools/audit-log - Retrieve user's isolated audit trail
-app.get('/api/tools/audit-log', requireAuth, (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+app.get('/api/tools/audit-log', requireAuth, async (req: Request, res: Response) => {
+  const userId = (await ensureUserSession(req));
   return res.json({
     status: 'ok',
     userId,
-    logs: getAuditLogs(userId)
+    logs: (await getAuditLogs(userId))
   });
 });
 
@@ -677,7 +677,7 @@ app.get('/api/models', async (_req: Request, res: Response) => {
     const response = await fetch('https://openrouter.ai/api/v1/models', {
       headers: {
         Authorization: `Bearer ${apiKey}`,
-        'HTTP-Referer': process.env.APP_URL || 'http://localhost:3000',
+        'HTTP-Referer': process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000'),
         'X-Title': 'NexusAI Platform'
       },
       signal: controller.signal
@@ -702,7 +702,7 @@ app.get('/api/models', async (_req: Request, res: Response) => {
 // POST /api/chat - Secure proxy for OpenRouter with Per-User Tenant Isolation
 // =============================================================================
 app.post('/api/chat', async (req: Request, res: Response) => {
-  const userId = ensureUserSession(req);
+  const userId = (await ensureUserSession(req));
   const apiKey = process.env.OPENROUTER_API_KEY?.trim() || '';
 
   if (!apiKey || apiKey === 'your_openrouter_api_key_here' || apiKey.startsWith('sk-or-v1-xxxx')) {
@@ -714,7 +714,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   }
 
   // Enforce per-user AI usage limit
-  const usage = dbCheckUserAiUsage(userId);
+  const usage = (await dbCheckUserAiUsage(userId));
   if (!usage.allowed) {
     return res.status(429).json({
       error: `Daily AI usage limit reached (${usage.requestsToday} requests). Resets tomorrow.`,
@@ -734,7 +734,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   const selectedModel = model?.trim() || process.env.DEFAULT_AI_MODEL || 'anthropic/claude-opus-5.5';
 
   // Check user active integrations to enrich model system instructions
-  const userIntegrations = dbGetUserIntegrations(userId);
+  const userIntegrations = (await dbGetUserIntegrations(userId));
   const activeIntegrations = userIntegrations.filter((i) => i.connectionStatus === 'connected');
   const activeDescriptions = activeIntegrations
     .map((i) => `${i.provider} (Account: ${i.externalAccountId || 'Connected'})`)
@@ -794,7 +794,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
   });
 
   try {
-    const appUrl = process.env.APP_URL || 'http://localhost:3000';
+    const appUrl = process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000');
     logger.info('ToolRouter', `Chat completion request for user "${userId}" with model "${selectedModel}"`);
 
     const openRouterResponse = await fetch('https://openrouter.ai/api/v1/chat/completions', {
@@ -825,7 +825,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     }
 
     // Increment user usage count
-    dbIncrementUserAiUsage(userId, 1, false);
+    (await dbIncrementUserAiUsage(userId, 1, false));
 
     // Non-streaming response
     if (!stream) {
@@ -868,6 +868,11 @@ app.post('/api/chat', async (req: Request, res: Response) => {
     res.write(`data: ${JSON.stringify({ error: message })}\n\n`);
     return res.end();
   }
+});
+
+app.use((error: unknown, _req: Request, res: Response, _next: express.NextFunction) => {
+  logger.error('Security', 'Request failed', error);
+  if (!res.headersSent) res.status(500).json({ error: 'Server configuration or database error.' });
 });
 
 // Vite middleware in dev or static files in production

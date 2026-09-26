@@ -390,7 +390,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
   const tool = UNIFIED_TOOL_REGISTRY[toolName];
   if (!tool) {
     const errorMsg = `Unauthorized action: Tool "${toolName}" is not registered in the allowlisted tool directory. Arbitrary execution is blocked.`;
-    dbRecordAudit({
+    (await dbRecordAudit({
       id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       userId,
       timestamp: new Date().toISOString(),
@@ -402,7 +402,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
       durationMs: Date.now() - startTime,
       error: errorMsg,
       clientIp
-    });
+    }));
 
     return {
       state: 'failed',
@@ -415,11 +415,11 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
   }
 
   // 3. Persistent Rate Limiting Check (Per User and Per IP)
-  const userRate = dbCheckRateLimit(`user:${userId}`, 30, 60000);
-  const ipRate = dbCheckRateLimit(`ip:${clientIp}`, 45, 60000);
+  const userRate = (await dbCheckRateLimit(`user:${userId}`, 30, 60000));
+  const ipRate = (await dbCheckRateLimit(`ip:${clientIp}`, 45, 60000));
   if (!userRate.allowed || !ipRate.allowed) {
     const rateLimitError = 'Rate limit exceeded: Too many automated tool executions. Please wait 60 seconds.';
-    dbRecordAudit({
+    (await dbRecordAudit({
       id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       userId,
       timestamp: new Date().toISOString(),
@@ -431,7 +431,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
       durationMs: Date.now() - startTime,
       error: rateLimitError,
       clientIp
-    });
+    }));
 
     return {
       state: 'failed',
@@ -444,7 +444,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
   }
 
   // 4. Per-User AI Usage & Quota Check
-  const aiUsage = dbCheckUserAiUsage(userId);
+  const aiUsage = (await dbCheckUserAiUsage(userId));
   if (!aiUsage.allowed) {
     const quotaError = `Daily AI usage limit reached (${aiUsage.requestsToday} requests). Limit resets tomorrow.`;
     return {
@@ -460,11 +460,11 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
   // 5. Tenant-Isolated Connector Authorization Check
   const connectorId = tool.connectorId;
   if (connectorId && connectorId !== 'system' && connectorId !== 'webhook') {
-    if (!isUserConnectorConnected(userId, connectorId)) {
+    if (!(await isUserConnectorConnected(userId, connectorId))) {
       const connectorName = CONNECTORS[connectorId]?.name || connectorId;
       const errorMsg = `Integration Not Connected: ${connectorName} is not connected for your account. Please connect ${connectorName} in Settings → Integrations before using this tool.`;
 
-      dbRecordAudit({
+      (await dbRecordAudit({
         id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
         userId,
         timestamp: new Date().toISOString(),
@@ -476,7 +476,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
         durationMs: Date.now() - startTime,
         error: errorMsg,
         clientIp
-      });
+      }));
 
       return {
         state: 'failed',
@@ -509,7 +509,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
       validationErrorMsg = err.message;
     }
 
-    dbRecordAudit({
+    (await dbRecordAudit({
       id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       userId,
       timestamp: new Date().toISOString(),
@@ -521,7 +521,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
       durationMs: Date.now() - startTime,
       error: `Validation rejected: ${validationErrorMsg}`,
       clientIp
-    });
+    }));
 
     return {
       state: 'failed',
@@ -547,7 +547,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
 
   // 7. Sensitive Operations User Confirmation Check
   if (tool.sensitivity === 'sensitive' && !confirmed) {
-    dbRecordAudit({
+    (await dbRecordAudit({
       id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       userId,
       timestamp: new Date().toISOString(),
@@ -558,7 +558,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
       status: 'awaiting_confirmation',
       durationMs: Date.now() - startTime,
       clientIp
-    });
+    }));
 
     return {
       state: 'awaiting_confirmation',
@@ -575,7 +575,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
   }
 
   // 8. Idempotency Check (Tenant-Isolated)
-  const cachedExecution = dbGetIdempotency(idempotencyKey, userId);
+  const cachedExecution = (await dbGetIdempotency(idempotencyKey, userId));
   if (cachedExecution) {
     return {
       state: cachedExecution.status,
@@ -606,16 +606,16 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
     const durationMs = Date.now() - startTime;
 
     // Persist idempotency record
-    dbSetIdempotency({
+    (await dbSetIdempotency({
       idempotencyKey,
       userId,
       toolName,
       result,
       status: 'completed'
-    });
+    }));
 
     // Record persistent audit log
-    dbRecordAudit({
+    (await dbRecordAudit({
       id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       userId,
       timestamp: new Date().toISOString(),
@@ -627,10 +627,10 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
       durationMs,
       result,
       clientIp
-    });
+    }));
 
     // Track user tool call in usage metrics
-    dbIncrementUserAiUsage(userId, 0, true);
+    (await dbIncrementUserAiUsage(userId, 0, true));
 
     return {
       state: 'completed',
@@ -644,16 +644,16 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
     const durationMs = Date.now() - startTime;
     const executionError = err instanceof Error ? err.message : 'Unknown execution failure';
 
-    dbSetIdempotency({
+    (await dbSetIdempotency({
       idempotencyKey,
       userId,
       toolName,
       result: null,
       status: 'failed',
       error: executionError
-    });
+    }));
 
-    dbRecordAudit({
+    (await dbRecordAudit({
       id: `audit_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`,
       userId,
       timestamp: new Date().toISOString(),
@@ -665,7 +665,7 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
       durationMs,
       error: executionError,
       clientIp
-    });
+    }));
 
     return {
       state: 'failed',
@@ -679,8 +679,8 @@ export async function executeToolSecurely(options: ExecuteToolOptions): Promise<
 }
 
 // Retrieve audit logs for a specific user
-export function getAuditLogs(userId: string, limit = 50): DbAuditLog[] {
-  return dbGetAuditLogs(userId, limit);
+export async function getAuditLogs(userId: string, limit = 50): Promise<DbAuditLog[]> {
+  return (await dbGetAuditLogs(userId, limit));
 }
 
 // Get the OpenRouter tools schema for allowlisted tools

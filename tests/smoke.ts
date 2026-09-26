@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 process.env.NEXUSAI_TEST = '1';
@@ -8,6 +8,7 @@ process.env.AUTH_SECRET = crypto.randomBytes(32).toString('hex');
 process.env.ENCRYPTION_SECRET = crypto.randomBytes(32).toString('hex');
 delete process.env.OPENROUTER_API_KEY;
 const original = process.cwd();
+for (const old of ['api/chat.ts', 'api/config.ts', 'api/tools/execute.ts']) assert.equal(existsSync(old), false, `Duplicate insecure handler: ${old}`);
 const temporary = mkdtempSync(join(tmpdir(), 'nexusai-test-'));
 process.chdir(temporary);
 const { default: app } = await import('../server');

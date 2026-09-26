@@ -739,7 +739,7 @@ export const webhookTools: PluginToolDefinition[] = [
     },
     execute: async (args: { webhook_id: string; payload?: Record<string, unknown>; reason: string }, context: ToolExecutionContext) => {
       // Find registered webhook belonging to this specific user
-      const registered = dbGetUserWebhookById(context.userId, args.webhook_id);
+      const registered = (await dbGetUserWebhookById(context.userId, args.webhook_id));
       if (!registered) {
         throw new Error(
           `Registered webhook "${args.webhook_id}" not found for your account. Register webhooks in Settings → Integrations.`

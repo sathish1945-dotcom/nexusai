@@ -101,6 +101,6 @@ npm start
 - Use Node.js 24 and `npm ci` (package-lock.json is authoritative).
 - Run `npm run lint`, `npm test`, and `npm run build` before deployment.
 - Vercel routes now share the Express backend through `api/index.ts`.
-- **Production blocker:** `server/db.ts` still uses a local SQLite file. Move accounts, OAuth credentials, sessions and quotas to a persistent external database before running this app on Vercel. Do not move SQLite to `/tmp` as a persistence workaround.
+- Production uses Turso through `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN`. Local development uses a SQLite file. Vercel refuses to fall back to a local database when the remote URL is missing.
 - Configure new OpenRouter credentials, unique AUTH_SECRET and ENCRYPTION_SECRET values, and Google OAuth settings through the hosting environment. Never commit these values.
 - Google OAuth and real AI calls have not been end-to-end verified.

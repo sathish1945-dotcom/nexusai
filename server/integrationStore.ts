@@ -30,9 +30,9 @@ export interface ConnectorPublicStatus {
 /**
  * Generates an isolated OAuth state token tied to this specific authenticated user.
  */
-export function generateOAuthState(userId: string, connectorId: string): string {
+export async function generateOAuthState(userId: string, connectorId: string): Promise<string> {
   const state = crypto.randomBytes(24).toString('hex');
-  dbSaveOAuthState(state, userId, connectorId);
+  (await dbSaveOAuthState(state, userId, connectorId));
   logger.info('OAuth', `Generated CSRF state token for user "${userId}" connector "${connectorId}"`);
   return state;
 }
@@ -40,8 +40,8 @@ export function generateOAuthState(userId: string, connectorId: string): string 
 /**
  * Verifies OAuth state token ensuring it belongs strictly to this user and connector.
  */
-export function verifyOAuthState(state: string, userId: string, connectorId: string): boolean {
-  const isValid = dbVerifyOAuthState(state, userId, connectorId);
+export async function verifyOAuthState(state: string, userId: string, connectorId: string): Promise<boolean> {
+  const isValid = (await dbVerifyOAuthState(state, userId, connectorId));
   if (isValid) {
     logger.info('OAuth', `Successfully validated CSRF state token for user "${userId}" connector "${connectorId}"`);
   } else {
@@ -85,7 +85,7 @@ export async function storeUserConnectorToken(params: {
   const tokenExpiry = expiresIn ? Date.now() + expiresIn * 1000 : undefined;
 
   // Persist directly to SQLite database with tenant isolation
-  const record = dbStoreUserIntegration({
+  const record = (await dbStoreUserIntegration({
     userId,
     provider: connectorId,
     externalAccountId: accountEmail,
@@ -94,7 +94,7 @@ export async function storeUserConnectorToken(params: {
     tokenExpiry,
     scopes,
     connectionStatus: 'connected'
-  });
+  }));
 
   logger.info('Vault', `Credentials securely stored in database for user "${userId}" provider "${connectorId}"`, {
     accountEmail: accountEmail || 'unknown',
@@ -110,7 +110,7 @@ export async function storeUserConnectorToken(params: {
  * Performs automatic token refresh if expired and refresh token is available.
  */
 export async function getUserConnectorAccessToken(userId: string, connectorId: string): Promise<string | null> {
-  const record = dbGetUserIntegration(userId, connectorId);
+  const record = (await dbGetUserIntegration(userId, connectorId));
   if (!record) {
     logger.warn('Vault', `No credentials found in database for user "${userId}" connector "${connectorId}"`);
     return null;
@@ -128,7 +128,7 @@ export async function getUserConnectorAccessToken(userId: string, connectorId: s
           const encryptedNew = encryptString(refreshed.access_token);
           const newExpiry = refreshed.expires_in ? Date.now() + refreshed.expires_in * 1000 : undefined;
 
-          dbStoreUserIntegration({
+          (await dbStoreUserIntegration({
             userId,
             provider: connectorId,
             externalAccountId: record.externalAccountId,
@@ -137,7 +137,7 @@ export async function getUserConnectorAccessToken(userId: string, connectorId: s
             tokenExpiry: newExpiry,
             scopes: record.scopes,
             connectionStatus: 'connected'
-          });
+          }));
 
           return refreshed.access_token;
         }
@@ -146,7 +146,7 @@ export async function getUserConnectorAccessToken(userId: string, connectorId: s
       }
     }
 
-    dbUpdateUserIntegrationStatus(userId, connectorId, 'reconnect_required', 'Access token expired');
+    (await dbUpdateUserIntegrationStatus(userId, connectorId, 'reconnect_required', 'Access token expired'));
     logger.warn('Vault', `Stored token for user "${userId}" connector "${connectorId}" has expired`);
     return null;
   }
@@ -158,7 +158,7 @@ export async function getUserConnectorAccessToken(userId: string, connectorId: s
     });
     return decrypted;
   } catch (err) {
-    dbUpdateUserIntegrationStatus(userId, connectorId, 'error', 'Failed to decrypt token');
+    (await dbUpdateUserIntegrationStatus(userId, connectorId, 'error', 'Failed to decrypt token'));
     logger.error('Vault', `Failed to decrypt token for user "${userId}" connector "${connectorId}"`, err);
     return null;
   }
@@ -167,8 +167,8 @@ export async function getUserConnectorAccessToken(userId: string, connectorId: s
 /**
  * Checks if a specific connector is currently connected and active for a user.
  */
-export function isUserConnectorConnected(userId: string, connectorId: string): boolean {
-  const record = dbGetUserIntegration(userId, connectorId);
+export async function isUserConnectorConnected(userId: string, connectorId: string): Promise<boolean> {
+  const record = (await dbGetUserIntegration(userId, connectorId));
   if (!record) return false;
   if (record.connectionStatus !== 'connected') return false;
   if (record.tokenExpiry && Date.now() > record.tokenExpiry && !record.encryptedRefreshToken) {
@@ -194,7 +194,7 @@ export async function revokeUserConnectorToken(userId: string, connectorId: stri
     // Ignore external network failure during revoke
   }
 
-  const revoked = dbDeleteUserIntegration(userId, connectorId);
+  const revoked = (await dbDeleteUserIntegration(userId, connectorId));
   logger.info('Vault', `Credentials revoked and deleted for user "${userId}" connector "${connectorId}"`, {
     success: revoked
   });
@@ -204,8 +204,8 @@ export async function revokeUserConnectorToken(userId: string, connectorId: stri
 /**
  * Returns integration status details for a user.
  */
-export function getUserConnectorAuthDetails(userId: string, connectorId: string): DbUserIntegration | null {
-  return dbGetUserIntegration(userId, connectorId);
+export async function getUserConnectorAuthDetails(userId: string, connectorId: string): Promise<DbUserIntegration | null> {
+  return (await dbGetUserIntegration(userId, connectorId));
 }
 
 /**

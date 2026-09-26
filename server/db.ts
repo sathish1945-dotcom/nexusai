@@ -1,4 +1,4 @@
-import { DatabaseSync } from 'node:sqlite';
+import { createClient, type Client, type InValue } from '@libsql/client';
 import path from 'path';
 import fs from 'fs';
 import { logger } from './logger';
@@ -87,25 +87,30 @@ export interface DbAiUsage {
   lastResetDate: string;
 }
 
-let dbInstance: DatabaseSync | null = null;
-
-export function getDb(): DatabaseSync {
-  if (dbInstance) return dbInstance;
-
-  const dataDir = path.resolve(process.cwd(), 'data');
-  if (!fs.existsSync(dataDir)) {
-    fs.mkdirSync(dataDir, { recursive: true });
-  }
-
-  const dbPath = path.join(dataDir, 'nexusai.db');
-  dbInstance = new DatabaseSync(dbPath);
-
-  // Enable WAL mode for high concurrency & reliability
-  dbInstance.exec('PRAGMA journal_mode = WAL;');
-  dbInstance.exec('PRAGMA foreign_keys = ON;');
-
+class AsyncDatabase {
+ constructor(private client: Client) {}
+ prepare(sql: string) {
+  const execute = (...args: InValue[]) => this.client.execute({ sql, args });
+  return {
+   run: async (...args: InValue[]) => { const r = await execute(...args); return { changes: r.rowsAffected }; },
+   get: async (...args: InValue[]) => (await execute(...args)).rows[0],
+   all: async (...args: InValue[]) => (await execute(...args)).rows,
+  };
+ }
+}
+let dbPromise: Promise<AsyncDatabase> | null = null;
+export function getDb(): Promise<AsyncDatabase> {
+ if (!dbPromise) dbPromise = initializeDb().catch(error => { dbPromise = null; throw error; });
+ return dbPromise;
+}
+async function initializeDb(): Promise<AsyncDatabase> {
+ const remoteUrl = process.env.TURSO_DATABASE_URL;
+ if (process.env.VERCEL && !remoteUrl) throw new Error('TURSO_DATABASE_URL is required on Vercel');
+ if (!remoteUrl) fs.mkdirSync(path.resolve(process.cwd(), 'data'), { recursive: true });
+ const client = createClient({ url: remoteUrl || 'file:' + path.resolve(process.cwd(), 'data/nexusai.db'), authToken: process.env.TURSO_AUTH_TOKEN });
+ try {
   // 1. Users table (Multi-tenant authentication)
-  dbInstance.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS users (
       id TEXT PRIMARY KEY,
       email TEXT UNIQUE,
@@ -120,7 +125,7 @@ export function getDb(): DatabaseSync {
   `);
 
   // 2. User Integrations table (Encrypted OAuth credentials isolated per user)
-  dbInstance.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS user_integrations (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -141,7 +146,7 @@ export function getDb(): DatabaseSync {
   `);
 
   // 3. User Webhooks table (Tenant isolated server-side registered webhooks)
-  dbInstance.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS user_webhooks (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -156,7 +161,7 @@ export function getDb(): DatabaseSync {
   `);
 
   // 4. OAuth CSRF State Table (Isolated per user with 10-minute validity)
-  dbInstance.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS oauth_states (
       state TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -166,7 +171,7 @@ export function getDb(): DatabaseSync {
   `);
 
   // 5. Idempotency Records Table (Isolated per user)
-  dbInstance.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS idempotency_records (
       idempotency_key TEXT NOT NULL,
       user_id TEXT NOT NULL,
@@ -180,7 +185,7 @@ export function getDb(): DatabaseSync {
   `);
 
   // 6. Audit Logs Table (Isolated per user)
-  dbInstance.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS audit_logs (
       id TEXT PRIMARY KEY,
       user_id TEXT NOT NULL,
@@ -199,7 +204,7 @@ export function getDb(): DatabaseSync {
   `);
 
   // 7. Rate Limits Table (Enforces limits per user and per IP)
-  dbInstance.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS rate_limits (
       rate_key TEXT PRIMARY KEY,
       count INTEGER NOT NULL,
@@ -208,7 +213,7 @@ export function getDb(): DatabaseSync {
   `);
 
   // 8. User AI Usage Table (Prevents quota abuse on OpenRouter)
-  dbInstance.exec(`
+  await client.executeMultiple(`
     CREATE TABLE IF NOT EXISTS user_ai_usage (
       user_id TEXT PRIMARY KEY,
       requests_today INTEGER NOT NULL DEFAULT 0,
@@ -220,23 +225,23 @@ export function getDb(): DatabaseSync {
     );
   `);
 
-  logger.info('Database', 'Multi-tenant SQLite database initialized successfully at data/nexusai.db');
-  return dbInstance;
-}
 
+ return new AsyncDatabase(client);
+ } catch (error) { client.close(); throw error; }
+}
 // =============================================================================
 // User Authentication DB Operations
 // =============================================================================
 
-export function dbCreateUser(params: {
+export async function dbCreateUser(params: {
   id: string;
   email?: string;
   passwordHash?: string;
   displayName?: string;
   avatarUrl?: string;
   isAnonymous?: boolean;
-}): DbUser {
-  const db = getDb();
+}): Promise<DbUser> {
+  const db = (await getDb());
   const now = new Date().toISOString();
   const isAnon = params.isAnonymous ? 1 : 0;
 
@@ -245,7 +250,7 @@ export function dbCreateUser(params: {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?);
   `);
 
-  stmt.run(
+  (await stmt.run(
     params.id,
     params.email || null,
     params.passwordHash || null,
@@ -254,7 +259,7 @@ export function dbCreateUser(params: {
     isAnon,
     now,
     now
-  );
+  ));
 
   return {
     id: params.id,
@@ -268,10 +273,10 @@ export function dbCreateUser(params: {
   };
 }
 
-export function dbGetUserById(id: string): DbUser | null {
-  const db = getDb();
+export async function dbGetUserById(id: string): Promise<DbUser | null> {
+  const db = (await getDb());
   const stmt = db.prepare('SELECT * FROM users WHERE id = ?;');
-  const row = stmt.get(id) as any;
+  const row = (await stmt.get(id)) as any;
   if (!row) return null;
 
   return {
@@ -286,10 +291,10 @@ export function dbGetUserById(id: string): DbUser | null {
   };
 }
 
-export function dbGetUserByEmail(email: string): DbUser | null {
-  const db = getDb();
+export async function dbGetUserByEmail(email: string): Promise<DbUser | null> {
+  const db = (await getDb());
   const stmt = db.prepare('SELECT * FROM users WHERE LOWER(email) = LOWER(?);');
-  const row = stmt.get(email) as any;
+  const row = (await stmt.get(email)) as any;
   if (!row) return null;
 
   return {
@@ -308,7 +313,7 @@ export function dbGetUserByEmail(email: string): DbUser | null {
 // User Integration DB Operations (Strictly Tenant-Isolated)
 // =============================================================================
 
-export function dbStoreUserIntegration(params: {
+export async function dbStoreUserIntegration(params: {
   userId: string;
   provider: string;
   externalAccountId?: string;
@@ -318,8 +323,8 @@ export function dbStoreUserIntegration(params: {
   scopes: string[];
   connectionStatus?: ConnectionStatus;
   lastError?: string;
-}): DbUserIntegration {
-  const db = getDb();
+}): Promise<DbUserIntegration> {
+  const db = (await getDb());
   const now = new Date().toISOString();
   const id = `${params.userId}:${params.provider}`;
   const status: ConnectionStatus = params.connectionStatus || 'connected';
@@ -341,7 +346,7 @@ export function dbStoreUserIntegration(params: {
       updated_at = excluded.updated_at;
   `);
 
-  stmt.run(
+  (await stmt.run(
     id,
     params.userId,
     params.provider,
@@ -354,7 +359,7 @@ export function dbStoreUserIntegration(params: {
     params.lastError || null,
     now,
     now
-  );
+  ));
 
   logger.info('Database', `Persisted integration credentials for user "${params.userId}" provider "${params.provider}"`, {
     externalAccountId: params.externalAccountId || 'unknown',
@@ -377,13 +382,13 @@ export function dbStoreUserIntegration(params: {
   };
 }
 
-export function dbGetUserIntegration(userId: string, provider: string): DbUserIntegration | null {
-  const db = getDb();
+export async function dbGetUserIntegration(userId: string, provider: string): Promise<DbUserIntegration | null> {
+  const db = (await getDb());
   const stmt = db.prepare(`
     SELECT * FROM user_integrations
     WHERE user_id = ? AND provider = ?;
   `);
-  const row = stmt.get(userId, provider) as any;
+  const row = (await stmt.get(userId, provider)) as any;
   if (!row) return null;
 
   let scopes: string[] = [];
@@ -409,10 +414,10 @@ export function dbGetUserIntegration(userId: string, provider: string): DbUserIn
   };
 }
 
-export function dbGetUserIntegrations(userId: string): DbUserIntegration[] {
-  const db = getDb();
+export async function dbGetUserIntegrations(userId: string): Promise<DbUserIntegration[]> {
+  const db = (await getDb());
   const stmt = db.prepare('SELECT * FROM user_integrations WHERE user_id = ?;');
-  const rows = stmt.all(userId) as any[];
+  const rows = (await stmt.all(userId)) as any[];
 
   return rows.map((row) => {
     let scopes: string[] = [];
@@ -438,49 +443,49 @@ export function dbGetUserIntegrations(userId: string): DbUserIntegration[] {
   });
 }
 
-export function dbDeleteUserIntegration(userId: string, provider: string): boolean {
-  const db = getDb();
+export async function dbDeleteUserIntegration(userId: string, provider: string): Promise<boolean> {
+  const db = (await getDb());
   const stmt = db.prepare('DELETE FROM user_integrations WHERE user_id = ? AND provider = ?;');
-  const res = stmt.run(userId, provider);
+  const res = (await stmt.run(userId, provider));
   logger.info('Database', `Deleted integration for user "${userId}" provider "${provider}"`);
   return Number(res.changes) > 0;
 }
 
-export function dbUpdateUserIntegrationStatus(
+export async function dbUpdateUserIntegrationStatus(
   userId: string,
   provider: string,
   status: ConnectionStatus,
   lastError?: string
-): void {
-  const db = getDb();
+): Promise<void> {
+  const db = (await getDb());
   const now = new Date().toISOString();
-  db.prepare(`
+  (await db.prepare(`
     UPDATE user_integrations
     SET connection_status = ?, last_error = ?, updated_at = ?
     WHERE user_id = ? AND provider = ?;
-  `).run(status, lastError || null, now, userId, provider);
+  `).run(status, lastError || null, now, userId, provider));
 }
 
 // =============================================================================
 // OAuth CSRF State Operations (Strictly Tenant-Isolated)
 // =============================================================================
 
-export function dbSaveOAuthState(state: string, userId: string, connectorId: string): void {
-  const db = getDb();
+export async function dbSaveOAuthState(state: string, userId: string, connectorId: string): Promise<void> {
+  const db = (await getDb());
   // Prune expired states older than 15 minutes
   const cutoff = Date.now() - 15 * 60 * 1000;
-  db.prepare('DELETE FROM oauth_states WHERE created_at < ?;').run(cutoff);
+  (await db.prepare('DELETE FROM oauth_states WHERE created_at < ?;').run(cutoff));
 
-  db.prepare('INSERT OR REPLACE INTO oauth_states (state, user_id, connector_id, created_at) VALUES (?, ?, ?, ?);')
-    .run(state, userId, connectorId, Date.now());
+  (await db.prepare('INSERT OR REPLACE INTO oauth_states (state, user_id, connector_id, created_at) VALUES (?, ?, ?, ?);')
+    .run(state, userId, connectorId, Date.now()));
 
   logger.info('Database', `OAuth CSRF state saved for user "${userId}" connector "${connectorId}"`);
 }
 
-export function dbVerifyOAuthState(state: string, userId: string, connectorId: string): boolean {
-  const db = getDb();
+export async function dbVerifyOAuthState(state: string, userId: string, connectorId: string): Promise<boolean> {
+  const db = (await getDb());
   const stmt = db.prepare('SELECT state, user_id, connector_id, created_at FROM oauth_states WHERE state = ?;');
-  const row = stmt.get(state) as any;
+  const row = (await stmt.get(state)) as any;
 
   if (!row) {
     logger.warn('Database', 'OAuth state verification failed: State not found');
@@ -488,7 +493,7 @@ export function dbVerifyOAuthState(state: string, userId: string, connectorId: s
   }
 
   // Delete state to prevent replay attacks
-  db.prepare('DELETE FROM oauth_states WHERE state = ?;').run(state);
+  (await db.prepare('DELETE FROM oauth_states WHERE state = ?;').run(state));
 
   const STATE_TTL_MS = 10 * 60 * 1000;
   const isExpired = Date.now() - Number(row.created_at) > STATE_TTL_MS;
@@ -515,10 +520,10 @@ export function dbVerifyOAuthState(state: string, userId: string, connectorId: s
 // Idempotency Record Operations (Strictly Tenant-Isolated)
 // =============================================================================
 
-export function dbGetIdempotency(key: string, userId: string): DbIdempotencyRecord | null {
-  const db = getDb();
+export async function dbGetIdempotency(key: string, userId: string): Promise<DbIdempotencyRecord | null> {
+  const db = (await getDb());
   const stmt = db.prepare('SELECT * FROM idempotency_records WHERE idempotency_key = ? AND user_id = ?;');
-  const row = stmt.get(key, userId) as any;
+  const row = (await stmt.get(key, userId)) as any;
   if (!row) return null;
 
   let result: unknown = null;
@@ -541,18 +546,18 @@ export function dbGetIdempotency(key: string, userId: string): DbIdempotencyReco
   };
 }
 
-export function dbSetIdempotency(record: {
+export async function dbSetIdempotency(record: {
   idempotencyKey: string;
   userId: string;
   toolName: string;
   result: unknown;
   status: 'completed' | 'failed';
   error?: string;
-}): void {
-  const db = getDb();
+}): Promise<void> {
+  const db = (await getDb());
   const resultJson = record.result !== undefined ? JSON.stringify(record.result) : null;
 
-  db.prepare(`
+  (await db.prepare(`
     INSERT OR REPLACE INTO idempotency_records (
       idempotency_key, user_id, tool_name, result_json, status, error, created_at
     ) VALUES (?, ?, ?, ?, ?, ?, ?);
@@ -564,19 +569,19 @@ export function dbSetIdempotency(record: {
     record.status,
     record.error || null,
     Date.now()
-  );
+  ));
 }
 
 // =============================================================================
 // Audit Log Operations (Strictly Tenant-Isolated)
 // =============================================================================
 
-export function dbRecordAudit(log: DbAuditLog): void {
-  const db = getDb();
+export async function dbRecordAudit(log: DbAuditLog): Promise<void> {
+  const db = (await getDb());
   const parametersJson = JSON.stringify(log.parameters || {});
   const resultJson = log.result !== undefined ? JSON.stringify(log.result) : null;
 
-  db.prepare(`
+  (await db.prepare(`
     INSERT INTO audit_logs (
       id, user_id, timestamp, tool_name, sensitivity, idempotency_key,
       parameters_json, status, duration_ms, result_json, error, client_ip
@@ -594,13 +599,13 @@ export function dbRecordAudit(log: DbAuditLog): void {
     resultJson,
     log.error || null,
     log.clientIp || null
-  );
+  ));
 }
 
-export function dbGetAuditLogs(userId: string, limit = 50): DbAuditLog[] {
-  const db = getDb();
+export async function dbGetAuditLogs(userId: string, limit = 50): Promise<DbAuditLog[]> {
+  const db = (await getDb());
   const stmt = db.prepare('SELECT * FROM audit_logs WHERE user_id = ? ORDER BY timestamp DESC LIMIT ?;');
-  const rows = stmt.all(userId, limit) as any[];
+  const rows = (await stmt.all(userId, limit)) as any[];
 
   return rows.map((r) => {
     let parameters = {};
@@ -639,19 +644,19 @@ export function dbGetAuditLogs(userId: string, limit = 50): DbAuditLog[] {
 // AI Usage & Abuse Prevention (Strictly Tenant-Isolated)
 // =============================================================================
 
-export function dbCheckUserAiUsage(
+export async function dbCheckUserAiUsage(
   userId: string,
   dailyLimit = 100
-): { allowed: boolean; requestsToday: number; tokensUsedToday: number; remaining: number } {
-  const db = getDb();
+): Promise<{ allowed: boolean; requestsToday: number; tokensUsedToday: number; remaining: number }> {
+  const db = (await getDb());
   const today = new Date().toISOString().slice(0, 10);
 
   const stmt = db.prepare('SELECT * FROM user_ai_usage WHERE user_id = ?;');
-  let row = stmt.get(userId) as any;
+  let row = (await stmt.get(userId)) as any;
 
   if (!row || row.last_reset_date !== today) {
     // Reset or create today's usage row
-    db.prepare(`
+    (await db.prepare(`
       INSERT INTO user_ai_usage (user_id, requests_today, tokens_used_today, tool_calls_today, daily_limit, last_reset_date)
       VALUES (?, 0, 0, 0, ?, ?)
       ON CONFLICT(user_id) DO UPDATE SET
@@ -660,7 +665,7 @@ export function dbCheckUserAiUsage(
         tool_calls_today = 0,
         daily_limit = excluded.daily_limit,
         last_reset_date = excluded.last_reset_date;
-    `).run(userId, dailyLimit, today);
+    `).run(userId, dailyLimit, today));
 
     return { allowed: true, requestsToday: 0, tokensUsedToday: 0, remaining: dailyLimit };
   }
@@ -686,40 +691,40 @@ export function dbCheckUserAiUsage(
   };
 }
 
-export function dbIncrementUserAiUsage(userId: string, tokens = 0, isToolCall = false): void {
-  const db = getDb();
+export async function dbIncrementUserAiUsage(userId: string, tokens = 0, isToolCall = false): Promise<void> {
+  const db = (await getDb());
   const today = new Date().toISOString().slice(0, 10);
   const toolCallInc = isToolCall ? 1 : 0;
 
-  db.prepare(`
+  (await db.prepare(`
     INSERT INTO user_ai_usage (user_id, requests_today, tokens_used_today, tool_calls_today, daily_limit, last_reset_date)
     VALUES (?, 1, ?, ?, 100, ?)
     ON CONFLICT(user_id) DO UPDATE SET
       requests_today = user_ai_usage.requests_today + 1,
       tokens_used_today = user_ai_usage.tokens_used_today + ?,
       tool_calls_today = user_ai_usage.tool_calls_today + ?;
-  `).run(userId, tokens, toolCallInc, today, tokens, toolCallInc);
+  `).run(userId, tokens, toolCallInc, today, tokens, toolCallInc));
 }
 
 // =============================================================================
 // Persistent Rate Limiter (Per User and Per IP)
 // =============================================================================
 
-export function dbCheckRateLimit(
+export async function dbCheckRateLimit(
   rateKey: string,
   maxRequests: number,
   windowMs: number
-): { allowed: boolean; remaining: number; resetAt: number } {
-  const db = getDb();
+): Promise<{ allowed: boolean; remaining: number; resetAt: number }> {
+  const db = (await getDb());
   const now = Date.now();
 
   const stmt = db.prepare('SELECT rate_key, count, reset_at FROM rate_limits WHERE rate_key = ?;');
-  const row = stmt.get(rateKey) as any;
+  const row = (await stmt.get(rateKey)) as any;
 
   if (!row || now > Number(row.reset_at)) {
     const newResetAt = now + windowMs;
-    db.prepare('INSERT OR REPLACE INTO rate_limits (rate_key, count, reset_at) VALUES (?, ?, ?);')
-      .run(rateKey, 1, newResetAt);
+    (await db.prepare('INSERT OR REPLACE INTO rate_limits (rate_key, count, reset_at) VALUES (?, ?, ?);')
+      .run(rateKey, 1, newResetAt));
     return { allowed: true, remaining: maxRequests - 1, resetAt: newResetAt };
   }
 
@@ -729,8 +734,8 @@ export function dbCheckRateLimit(
   }
 
   const updatedCount = currentCount + 1;
-  db.prepare('UPDATE rate_limits SET count = ? WHERE rate_key = ?;')
-    .run(updatedCount, rateKey);
+  (await db.prepare('UPDATE rate_limits SET count = ? WHERE rate_key = ?;')
+    .run(updatedCount, rateKey));
 
   return {
     allowed: true,
@@ -743,19 +748,19 @@ export function dbCheckRateLimit(
 // User Webhooks DB Operations (Strictly Tenant-Isolated & SSRF Safe)
 // =============================================================================
 
-export function dbStoreUserWebhook(params: {
+export async function dbStoreUserWebhook(params: {
   id: string;
   userId: string;
   name: string;
   targetUrl: string;
   encryptedSecret?: string;
   environment?: string;
-}): DbUserWebhook {
-  const db = getDb();
+}): Promise<DbUserWebhook> {
+  const db = (await getDb());
   const now = new Date().toISOString();
   const env = params.environment || 'production';
 
-  db.prepare(`
+  (await db.prepare(`
     INSERT INTO user_webhooks (id, user_id, name, target_url, encrypted_secret, environment, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?);
   `).run(
@@ -766,7 +771,7 @@ export function dbStoreUserWebhook(params: {
     params.encryptedSecret || null,
     env,
     now
-  );
+  ));
 
   return {
     id: params.id,
@@ -779,10 +784,10 @@ export function dbStoreUserWebhook(params: {
   };
 }
 
-export function dbGetUserWebhooks(userId: string): DbUserWebhook[] {
-  const db = getDb();
+export async function dbGetUserWebhooks(userId: string): Promise<DbUserWebhook[]> {
+  const db = (await getDb());
   const stmt = db.prepare('SELECT * FROM user_webhooks WHERE user_id = ?;');
-  const rows = stmt.all(userId) as any[];
+  const rows = (await stmt.all(userId)) as any[];
 
   return rows.map((r) => ({
     id: r.id,
@@ -795,10 +800,10 @@ export function dbGetUserWebhooks(userId: string): DbUserWebhook[] {
   }));
 }
 
-export function dbGetUserWebhookById(userId: string, webhookId: string): DbUserWebhook | null {
-  const db = getDb();
+export async function dbGetUserWebhookById(userId: string, webhookId: string): Promise<DbUserWebhook | null> {
+  const db = (await getDb());
   const stmt = db.prepare('SELECT * FROM user_webhooks WHERE user_id = ? AND id = ?;');
-  const r = stmt.get(userId, webhookId) as any;
+  const r = (await stmt.get(userId, webhookId)) as any;
   if (!r) return null;
 
   return {
@@ -812,8 +817,8 @@ export function dbGetUserWebhookById(userId: string, webhookId: string): DbUserW
   };
 }
 
-export function dbDeleteUserWebhook(userId: string, webhookId: string): boolean {
-  const db = getDb();
-  const res = db.prepare('DELETE FROM user_webhooks WHERE user_id = ? AND id = ?;').run(userId, webhookId);
+export async function dbDeleteUserWebhook(userId: string, webhookId: string): Promise<boolean> {
+  const db = (await getDb());
+  const res = (await db.prepare('DELETE FROM user_webhooks WHERE user_id = ? AND id = ?;').run(userId, webhookId));
   return Number(res.changes) > 0;
 }
