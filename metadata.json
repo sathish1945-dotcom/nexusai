@@ -1,0 +1,7 @@
+{
+  "name": "NexusAI - OpenRouter Chatbot",
+  "description": "Modern responsive ChatGPT-style AI chatbot powered by OpenRouter API with secure backend routing, model switching, and chat history.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+
