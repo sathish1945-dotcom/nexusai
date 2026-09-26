@@ -54,7 +54,7 @@ try {
   if (fs.existsSync(cfgPath)) {
     const raw = fs.readFileSync(cfgPath, 'utf8');
     const parsed = JSON.parse(raw);
-    if (parsed.oAuthClientId) {
+    if (!googleClientId && parsed.oAuthClientId) {
       googleClientId = parsed.oAuthClientId;
     }
   }
@@ -599,7 +599,7 @@ app.delete('/api/webhooks/:id', (req: Request, res: Response) => {
 // =============================================================================
 
 // POST /api/tools/execute
-app.post('/api/tools/execute', async (req: Request, res: Response) => {
+app.post('/api/tools/execute', requireAuth, async (req: Request, res: Response) => {
   const userId = ensureUserSession(req);
   const { toolName, arguments: toolArgs, confirmed, idempotencyKey } = req.body || {};
   const clientIp =
@@ -629,7 +629,7 @@ app.post('/api/tools/execute', async (req: Request, res: Response) => {
 });
 
 // GET /api/tools/audit-log - Retrieve user's isolated audit trail
-app.get('/api/tools/audit-log', (req: Request, res: Response) => {
+app.get('/api/tools/audit-log', requireAuth, (req: Request, res: Response) => {
   const userId = ensureUserSession(req);
   return res.json({
     status: 'ok',
@@ -894,6 +894,10 @@ async function startServer() {
   });
 }
 
-startServer().catch((err) => {
-  logger.error('Security', 'Failed to start NexusAI server', err);
-});
+export default app;
+
+if (!process.env.VERCEL && process.env.NEXUSAI_TEST !== '1') {
+  startServer().catch((err) => {
+    logger.error('Security', 'Failed to start NexusAI server', err);
+  });
+}

@@ -1,6 +1,6 @@
 # NexusAI - Multi-User Integration Platform
 
-NexusAI is a production-grade, multi-user AI platform with an AES-256-GCM encrypted credential vault, persistent SQLite database, and strict tenant isolation. Each user connects and utilizes their own Google Workspace (Gmail, Google Calendar, Google Drive), webhooks, and third-party tools.
+NexusAI is a multi-user AI prototype with an AES-256-GCM encrypted credential vault, persistent SQLite database, and strict tenant isolation. Each user connects and utilizes their own Google Workspace (Gmail, Google Calendar, Google Drive), webhooks, and third-party tools.
 
 Author: **Sathish Kani** (`psathishkani@gmail.com`)
 
@@ -95,3 +95,12 @@ npm run build
 # Start production server
 npm start
 ```
+
+## Deployment status
+
+- Use Node.js 24 and `npm ci` (package-lock.json is authoritative).
+- Run `npm run lint`, `npm test`, and `npm run build` before deployment.
+- Vercel routes now share the Express backend through `api/index.ts`.
+- **Production blocker:** `server/db.ts` still uses a local SQLite file. Move accounts, OAuth credentials, sessions and quotas to a persistent external database before running this app on Vercel. Do not move SQLite to `/tmp` as a persistence workaround.
+- Configure new OpenRouter credentials, unique AUTH_SECRET and ENCRYPTION_SECRET values, and Google OAuth settings through the hosting environment. Never commit these values.
+- Google OAuth and real AI calls have not been end-to-end verified.
