@@ -112,7 +112,7 @@ export const SetupModal: React.FC<SetupModalProps> = ({
                 <span>→</span>
                 <span className="text-indigo-300 font-medium capitalize">{activeTab}</span>
               </div>
-              <h3 className="text-sm font-bold text-white tracking-tight">NexusAI Integrations & Settings</h3>
+              <h3 className="text-sm font-bold text-white tracking-tight">Setup Integrations & Settings</h3>
             </div>
           </div>
           <button

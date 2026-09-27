@@ -58,7 +58,7 @@ export const ChatInput: React.FC<ChatInputProps> = ({
             value={input}
             onChange={(e) => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder="Message NexusAI... (Enter to send, Shift+Enter for newline)"
+            placeholder="Message Setup... (Enter to send, Shift+Enter for newline)"
             disabled={disabled}
             className="w-full max-h-[200px] resize-none bg-transparent py-3.5 pl-4 pr-12 text-sm text-slate-100 placeholder-slate-400 focus:outline-none leading-relaxed"
           />

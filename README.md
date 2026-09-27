@@ -1,6 +1,6 @@
-# NexusAI - Multi-User Integration Platform
+# Setup - Multi-User Integration Platform
 
-NexusAI is a multi-user AI prototype with an AES-256-GCM encrypted credential vault, persistent SQLite database, and strict tenant isolation. Each user connects and utilizes their own Google Workspace (Gmail, Google Calendar, Google Drive), webhooks, and third-party tools.
+Setup is a multi-user AI prototype with an AES-256-GCM encrypted credential vault, persistent SQLite database, and strict tenant isolation. Each user connects and utilizes their own Google Workspace (Gmail, Google Calendar, Google Drive), webhooks, and third-party tools.
 
 Author: **Sathish Kani** (`psathishkani@gmail.com`)
 
@@ -12,7 +12,7 @@ To deploy this repository to your GitHub account (`psathishkani@gmail.com`):
 
 ### 1. Create a New Repository on GitHub
 1. Go to [https://github.com/new](https://github.com/new)
-2. Repository name: `nexusai` (or your preferred name)
+2. Repository name: `setup` (or your preferred name)
 3. Visibility: **Public** or **Private**
 4. Do **not** initialize with a README, .gitignore, or license (already included in this project)
 5. Click **Create repository**
@@ -26,14 +26,14 @@ git config user.name "Sathish Kani"
 git config user.email "psathishkani@gmail.com"
 
 # Add your GitHub remote repository (replace with your repo URL)
-git remote add origin https://github.com/<your-username>/nexusai.git
+git remote add origin https://github.com/<your-username>/setup.git
 
 # Set default branch to main and push
 git branch -M main
 git push -u origin main
 ```
 
-*(If you use GitHub Personal Access Token or SSH, substitute `git@github.com:<your-username>/nexusai.git` as your remote URL).*
+*(If you use GitHub Personal Access Token or SSH, substitute `git@github.com:<your-username>/setup.git` as your remote URL).*
 
 ---
 

@@ -936,7 +936,7 @@ export default function App() {
     handleConfirmToolCall(toolCallId, true);
   };
 
-  // Return the tool execution result back to the model so it can display the final answer in NexusAI
+  // Return the tool execution result back to the model so it can display the final answer in Setup
   const feedToolResultBackToModel = async (
     convId: string,
     toolCall: ToolCall,

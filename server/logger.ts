@@ -1,5 +1,5 @@
 /**
- * Structured Secure Logger for NexusAI
+ * Structured Secure Logger for Setup
  *
  * Security Invariant:
  * NEVER logs access tokens, refresh tokens, OAuth authorization codes, API keys,
@@ -21,20 +21,20 @@ export const logger = {
     const timestamp = new Date().toISOString();
     const cleanMsg = sanitizeMessage(message);
     const metaStr = meta ? ` | ${JSON.stringify(meta)}` : '';
-    console.log(`[${timestamp}] [NexusAI-Audit] [${category}] ${cleanMsg}${metaStr}`);
+    console.log(`[${timestamp}] [Setup-Audit] [${category}] ${cleanMsg}${metaStr}`);
   },
 
   warn: (category: LogCategory, message: string, meta?: Record<string, unknown>) => {
     const timestamp = new Date().toISOString();
     const cleanMsg = sanitizeMessage(message);
     const metaStr = meta ? ` | ${JSON.stringify(meta)}` : '';
-    console.warn(`[${timestamp}] [NexusAI-Audit] [${category}] ⚠️  ${cleanMsg}${metaStr}`);
+    console.warn(`[${timestamp}] [Setup-Audit] [${category}] ⚠️  ${cleanMsg}${metaStr}`);
   },
 
   error: (category: LogCategory, message: string, error?: unknown) => {
     const timestamp = new Date().toISOString();
     const cleanMsg = sanitizeMessage(message);
     const errText = error instanceof Error ? error.message : String(error || '');
-    console.error(`[${timestamp}] [NexusAI-Audit] [${category}] ❌ ${cleanMsg}${errText ? ` | Error: ${errText}` : ''}`);
+    console.error(`[${timestamp}] [Setup-Audit] [${category}] ❌ ${cleanMsg}${errText ? ` | Error: ${errText}` : ''}`);
   }
 };

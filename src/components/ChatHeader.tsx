@@ -56,7 +56,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
         </button>
 
         <span className="text-base font-bold tracking-tight text-white select-none">
-          NexusAI
+          Setup
         </span>
       </div>
 
@@ -102,7 +102,7 @@ export const ChatHeader: React.FC<ChatHeaderProps> = ({
 
         <a
           href="/api/download"
-          download="nexusai-project.zip"
+          download="setup-project.zip"
           className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold text-emerald-400 hover:text-emerald-300 hover:bg-emerald-950/50 border border-emerald-700/60 bg-emerald-950/20 transition-all cursor-pointer"
           title="Download Complete Project Source Code (ZIP)"
         >

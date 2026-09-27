@@ -762,7 +762,7 @@ export const webhookTools: PluginToolDefinition[] = [
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'User-Agent': 'NexusAI-Webhook-Dispatcher/1.0',
+            'User-Agent': 'Setup-Webhook-Dispatcher/1.0',
             'X-NexusAI-Reason': encodeURIComponent(args.reason),
             'X-NexusAI-Idempotency': context.idempotencyKey
           },

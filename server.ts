@@ -666,7 +666,7 @@ app.get('/api/config', (_req: Request, res: Response) => {
 app.get(['/api/download', '/download'], (_req: Request, res: Response) => {
   const zipPath = path.resolve(process.cwd(), 'public', 'nexusai-project.zip');
   if (fs.existsSync(zipPath)) {
-    return res.download(zipPath, 'nexusai-project.zip');
+    return res.download(zipPath, 'setup-project.zip');
   }
   return res.status(404).json({ error: 'Archive not found. Please refresh.' });
 });
@@ -685,7 +685,7 @@ app.get('/api/models', async (_req: Request, res: Response) => {
       headers: {
         Authorization: `Bearer ${apiKey}`,
         'HTTP-Referer': process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000'),
-        'X-Title': 'NexusAI Platform'
+        'X-Title': 'Setup Platform'
       },
       signal: controller.signal
     });
@@ -754,7 +754,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
 
   const defaultSystemPrompt =
     (process.env.SYSTEM_PROMPT ||
-      'You are NexusAI, an advanced frontier AI assistant. You are thoughtful, precise, articulate, and skilled in deep reasoning and automation actions.') +
+      'You are Setup, an advanced frontier AI assistant. You are thoughtful, precise, articulate, and skilled in deep reasoning and automation actions.') +
     integrationNotice;
 
   const sanitizedMessages = [...messages];
@@ -810,7 +810,7 @@ app.post('/api/chat', async (req: Request, res: Response) => {
         'Content-Type': 'application/json',
         Authorization: `Bearer ${apiKey}`,
         'HTTP-Referer': appUrl,
-        'X-Title': 'NexusAI Platform'
+        'X-Title': 'Setup Platform'
       },
       body: JSON.stringify(openRouterPayload),
       signal: controller.signal
@@ -902,7 +902,7 @@ async function startServer() {
   }
 
   app.listen(PORT, '0.0.0.0', () => {
-    logger.info('Database', `NexusAI server running on http://localhost:${PORT}`);
+    logger.info('Database', `Setup server running on http://localhost:${PORT}`);
   });
 }
 
@@ -910,6 +910,6 @@ export default app;
 
 if (!process.env.VERCEL && process.env.NEXUSAI_TEST !== '1') {
   startServer().catch((err) => {
-    logger.error('Security', 'Failed to start NexusAI server', err);
+    logger.error('Security', 'Failed to start Setup server', err);
   });
 }

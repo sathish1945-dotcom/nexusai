@@ -105,7 +105,7 @@ export const MessageItem: React.FC<MessageItemProps> = ({
           {/* Header Metadata */}
           <div className="flex items-center gap-2 mb-1.5 text-xs text-slate-400">
             <span className="font-semibold text-slate-200">
-              {isUser ? 'You' : 'NexusAI'}
+              {isUser ? 'You' : 'Setup'}
             </span>
             {message.model && !isUser && (
               <>

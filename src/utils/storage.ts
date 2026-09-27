@@ -48,7 +48,7 @@ export function exportConversationToMarkdown(conv: Conversation): void {
   md += `**Model**: \`${conv.model}\`\n\n---\n\n`;
 
   for (const msg of conv.messages) {
-    const roleName = msg.role === 'user' ? 'User' : msg.role === 'assistant' ? 'NexusAI' : 'System';
+    const roleName = msg.role === 'user' ? 'User' : msg.role === 'assistant' ? 'Setup' : 'System';
     const timeStr = new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
     md += `### ${roleName} (${timeStr})\n\n${msg.content}\n\n`;
   }

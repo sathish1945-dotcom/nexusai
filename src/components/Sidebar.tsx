@@ -160,7 +160,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               <div className="w-6 h-6 rounded-lg bg-indigo-500/20 border border-indigo-400/30 flex items-center justify-center text-indigo-400">
                 <Sparkles className="w-3.5 h-3.5" />
               </div>
-              <span className="font-bold text-sm text-white tracking-tight">NexusAI</span>
+              <span className="font-bold text-sm text-white tracking-tight">Setup</span>
             </div>
             <button
               onClick={onClose}
