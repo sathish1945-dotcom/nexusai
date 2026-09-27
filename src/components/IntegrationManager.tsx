@@ -26,6 +26,7 @@ import { ConnectorInfo, RegisteredWebhook, UserProfile } from '../types/chat';
 import {
   getConnectors,
   getOAuthState,
+  getAuthHeaders,
   connectConnector,
   connectAllGoogle,
   disconnectConnector,
@@ -39,7 +40,6 @@ import {
   createGuestSession,
   logoutUser
 } from '../services/api';
-import { signInWithGoogleWorkspace, WORKSPACE_SCOPES } from '../services/firebaseAuth';
 
 interface IntegrationManagerProps {
   onClose?: () => void;
@@ -107,7 +107,23 @@ export const IntegrationManager: React.FC<IntegrationManagerProps> = ({
         // Ignore
       }
 
-      setError(null);
+      const params = new URLSearchParams(window.location.search);
+      const connected = params.get('integration_connected');
+      const oauthError = params.get('oauth_error');
+      if (oauthError) setError('Google connection could not be completed. Please try again and grant the requested permissions.');
+      else if (connected) {
+        const ids = connected === 'all' ? ['gmail', 'google_calendar', 'google_drive'] : [connected];
+        if (ids.every(id => data.connectors.some(c => c.id === id && c.connected))) {
+          setSuccessMsg('Google connection saved successfully.');
+          setError(null);
+        } else setError('The connection was not saved for this account. Please connect again.');
+      } else setError(null);
+      if (connected || oauthError) {
+        const url = new URL(window.location.href);
+        url.searchParams.delete('integration_connected');
+        url.searchParams.delete('oauth_error');
+        window.history.replaceState({}, '', url);
+      }
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to load integrations');
     } finally {
@@ -119,72 +135,24 @@ export const IntegrationManager: React.FC<IntegrationManagerProps> = ({
     fetchProfileAndIntegrations();
   }, []);
 
-  // Connect Google OAuth 2.0 Integration via Firebase Auth popup or Google Identity Services
-  const handleConnectOAuth = async (connector: ConnectorInfo) => {
+  const startGoogleOAuth = async (connectorId: string) => {
     setError(null);
     setSuccessMsg(null);
-    setActionInProgress(connector.id);
-
+    setActionInProgress(connectorId === 'all' ? 'google_all' : connectorId);
     try {
-      // 1. Fetch CSRF state from server for this user
-      const state = await getOAuthState(connector.id);
-
-      // 2. Primary OAuth provider: Firebase Google Auth popup
-      try {
-        const { user, accessToken } = await signInWithGoogleWorkspace(connector.requiredScopes);
-        const res = await connectConnector({
-          connectorId: connector.id,
-          accessToken,
-          state,
-          scopes: connector.requiredScopes
-        });
-
-        setSuccessMsg(`Successfully connected ${connector.name} (${res.accountEmail || user.email || 'Authorized'})!`);
-        await fetchProfileAndIntegrations();
-        return;
-      } catch (authErr: any) {
-        const errMessage = authErr?.message || '';
-        if (errMessage.includes('popup-closed-by-user') || errMessage.includes('cancelled')) {
-          setError('Authorization was cancelled.');
-          return;
-        }
-        console.warn('Firebase popup attempt failed, falling back to manual entry:', authErr);
-      }
-
-      // Fallback: Open manual token entry drawer
-      setManualTokenConnector(connector.id);
-      setError('Google authorization popup could not be completed. You can paste an access token below.');
-    } catch (err: unknown) {
-      setError(err instanceof Error ? err.message : 'OAuth connection request failed');
-    } finally {
-      setActionInProgress(null);
-    }
-  };
-
-  // Connect all Google Workspace integrations in one shot
-  const handleConnectAllGoogleSuite = async () => {
-    setError(null);
-    setSuccessMsg(null);
-    setActionInProgress('google_all');
-
-    try {
-      const { user, accessToken } = await signInWithGoogleWorkspace(WORKSPACE_SCOPES);
-      const res = await connectAllGoogle({
-        accessToken,
-        scopes: WORKSPACE_SCOPES
+      const response = await fetch(`/api/integrations/google/oauth-url?connectorId=${encodeURIComponent(connectorId)}`, {
+        headers: getAuthHeaders()
       });
-
-      setSuccessMsg(`Successfully connected Google Workspace (${res.accountEmail || user.email || 'Authorized'})!`);
-      await fetchProfileAndIntegrations();
-    } catch (err: any) {
-      const msg = err?.message || 'Failed to connect Google Workspace';
-      if (!msg.includes('popup-closed-by-user')) {
-        setError(msg);
-      }
-    } finally {
+      const data = await response.json();
+      if (!response.ok || !data.url) throw new Error(data.error || 'Unable to start Google authorization.');
+      window.location.assign(data.url);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : 'Unable to connect Google.');
       setActionInProgress(null);
     }
   };
+  const handleConnectOAuth = (connector: ConnectorInfo) => startGoogleOAuth(connector.id);
+  const handleConnectAllGoogleSuite = () => startGoogleOAuth('all');
 
   // Disconnect Integration & Revoke Server-side Credentials
   const handleDisconnect = async (connectorId: string) => {
@@ -198,7 +166,7 @@ export const IntegrationManager: React.FC<IntegrationManagerProps> = ({
 
     try {
       await disconnectConnector(connectorId);
-      setSuccessMsg(`Integration disconnected and authorization revoked.`);
+      setSuccessMsg(`Stored credentials removed. Google revocation was requested.`);
       await fetchProfileAndIntegrations();
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : 'Failed to disconnect integration');

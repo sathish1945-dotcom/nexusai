@@ -184,10 +184,11 @@ export async function revokeUserConnectorToken(userId: string, connectorId: stri
   // Best-effort external revocation for Google tokens
   try {
     const token = await getUserConnectorAccessToken(userId, connectorId);
-    if (token) {
-      await fetch(`https://oauth2.googleapis.com/revoke?token=${token}`, {
+    if (token && ['gmail', 'google_calendar', 'google_drive'].includes(connectorId)) {
+      await fetch('https://oauth2.googleapis.com/revoke', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded' }
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: new URLSearchParams({ token })
       }).catch(() => {});
     }
   } catch {

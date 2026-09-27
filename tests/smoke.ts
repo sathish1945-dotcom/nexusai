@@ -7,6 +7,8 @@ process.env.NEXUSAI_TEST = '1';
 process.env.AUTH_SECRET = crypto.randomBytes(32).toString('hex');
 process.env.ENCRYPTION_SECRET = crypto.randomBytes(32).toString('hex');
 delete process.env.OPENROUTER_API_KEY;
+process.env.GOOGLE_CLIENT_SECRET = 'test-secret';
+process.env.GOOGLE_REDIRECT_URI = 'https://example.com/api/integrations/google/callback';
 const original = process.cwd();
 for (const old of ['api/chat.ts', 'api/config.ts', 'api/tools/execute.ts']) assert.equal(existsSync(old), false, `Duplicate insecure handler: ${old}`);
 const temporary = mkdtempSync(join(tmpdir(), 'nexusai-test-'));
@@ -41,6 +43,50 @@ try {
  const first = await request('/api/tools/audit-log', undefined, token);
  const second = await request('/api/tools/audit-log', undefined, guest.body.token);
  assert.notEqual(first.body.userId, second.body.userId);
+ assert.equal((await request('/api/integrations/google/oauth-url')).status, 401);
+ assert.equal((await request('/api/integrations/google/oauth-url?connectorId=github', undefined, token)).status, 400);
+ const oauth = await request('/api/integrations/google/oauth-url?connectorId=all', undefined, token);
+ assert.equal(oauth.status, 200);
+ const consent = new URL(oauth.body.url);
+ assert.equal(consent.searchParams.get('redirect_uri'), process.env.GOOGLE_REDIRECT_URI);
+ assert.equal(consent.searchParams.get('access_type'), 'offline');
+ const realFetch = globalThis.fetch;
+ let exchanges = 0;
+ let granted = consent.searchParams.get('scope')!;
+ globalThis.fetch = (async (input: any, init?: any) => {
+   const url = String(input);
+   if (url === 'https://oauth2.googleapis.com/token') {
+     exchanges++;
+     assert.equal(init.body.get('redirect_uri'), process.env.GOOGLE_REDIRECT_URI);
+     return Response.json({access_token:'mock-access',refresh_token:'mock-refresh',expires_in:3600,scope:granted});
+   }
+   if (url === 'https://www.googleapis.com/oauth2/v3/userinfo') return Response.json({email:'test@example.com'});
+   return realFetch(input, init);
+ }) as typeof fetch;
+ try {
+   const callback = (state: string) => fetch(base + '/api/integrations/google/callback?code=test&state=' + encodeURIComponent(state), {redirect:'manual'});
+   assert.match((await callback('forged')).headers.get('location')!, /oauth_error/);
+   assert.equal(exchanges, 0);
+   assert.match((await callback(oauth.body.state)).headers.get('location')!, /integration_connected=all/);
+   const connected = await request('/api/integrations', undefined, token);
+   const isolated = await request('/api/integrations', undefined, guest.body.token);
+   const { dbGetUserIntegration } = await import('../server/db');
+   for (const id of ['gmail','google_calendar','google_drive']) {
+     assert.equal(connected.body.connectors.find((c: any) => c.id === id).connected, true);
+     assert.equal(isolated.body.connectors.find((c: any) => c.id === id).connected, false);
+     const record = await dbGetUserIntegration(me.body.user.id, id);
+     assert.ok(record?.encryptedRefreshToken);
+     assert.notEqual(record?.encryptedAccessToken, 'mock-access');
+   }
+   assert.match((await callback(oauth.body.state)).headers.get('location')!, /oauth_error/);
+   assert.equal(exchanges, 1);
+   const partial = await request('/api/integrations/google/oauth-url?connectorId=all', undefined, guest.body.token);
+   granted = 'openid email';
+   assert.match((await callback(partial.body.state)).headers.get('location')!, /oauth_error/);
+   const denied = await request('/api/integrations', undefined, guest.body.token);
+   assert.equal(denied.body.connectors.some((c: any) => c.connected), false);
+ } finally { globalThis.fetch = realFetch; }
+ console.log('PASS: authenticated OAuth, custom callback URL, suite token persistence, encrypted refresh tokens, tenant isolation, forged/replayed state rejection, denied scopes');
  const { encryptString, decryptString } = await import('../server/crypto');
  const encrypted = encryptString('test-only-value');
  assert.equal(decryptString(encrypted), 'test-only-value');

@@ -119,6 +119,10 @@ export const EmptyState: React.FC<EmptyStateProps> = ({
           );
         })}
       </div>
+      <footer className="mt-8 flex justify-center gap-4 text-xs text-slate-400">
+        <a href="/privacy" target="_blank" rel="noopener noreferrer">Privacy Policy</a>
+        <a href="/terms" target="_blank" rel="noopener noreferrer">Terms of Service</a>
+      </footer>
     </div>
   );
 };

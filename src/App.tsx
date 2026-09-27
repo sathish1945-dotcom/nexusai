@@ -363,7 +363,7 @@ export default function App() {
 
   // UI Modals & Drawers
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
-  const [isSetupOpen, setIsSetupOpen] = useState(false);
+  const [isSetupOpen, setIsSetupOpen] = useState(() => /[?&](integration_connected|oauth_error)=/.test(window.location.search));
   const [isModelSelectorOpen, setIsModelSelectorOpen] = useState(false);
 
   // Refs

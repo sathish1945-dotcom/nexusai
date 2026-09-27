@@ -374,12 +374,12 @@ app.get('/api/integrations/oauth-state', async (req: Request, res: Response) => 
 });
 
 // GET /api/integrations/google/oauth-url - Generate standard OAuth consent redirect URL
-app.get('/api/integrations/google/oauth-url', async (req: Request, res: Response) => {
+app.get('/api/integrations/google/oauth-url', requireAuth, async (req: Request, res: Response) => {
   const userId = (await ensureUserSession(req));
   const connectorId = String(req.query.connectorId || 'gmail');
-  const connector = CONNECTORS[connectorId];
+  const ids = connectorId === 'all' ? ['gmail', 'google_calendar', 'google_drive'] : [connectorId];
 
-  if (!connector) {
+  if (!ids.every(id => ['gmail', 'google_calendar', 'google_drive'].includes(id))) {
     return res.status(400).json({ error: 'Invalid connectorId.' });
   }
 
@@ -390,8 +390,8 @@ app.get('/api/integrations/google/oauth-url', async (req: Request, res: Response
 
   const state = (await generateOAuthState(userId, connectorId));
   const appUrl = process.env.APP_URL || (process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : 'http://localhost:3000');
-  const redirectUri = `${appUrl}/api/integrations/google/callback`;
-  const scopes = encodeURIComponent(connector.requiredScopes.join(' '));
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${appUrl}/api/integrations/google/callback`;
+  const scopes = encodeURIComponent([...new Set(['openid', 'email', ...ids.flatMap(id => CONNECTORS[id].requiredScopes)])].join(' '));
 
   const authUrl = `https://accounts.google.com/o/oauth2/v2/auth?client_id=${encodeURIComponent(
     clientId
@@ -424,7 +424,7 @@ app.get('/api/integrations/google/callback', async (req: Request, res: Response)
 
   const clientId = googleClientId || process.env.GOOGLE_CLIENT_ID;
   const clientSecret = process.env.GOOGLE_CLIENT_SECRET;
-  const redirectUri = `${appUrl}/api/integrations/google/callback`;
+  const redirectUri = process.env.GOOGLE_REDIRECT_URI || `${appUrl}/api/integrations/google/callback`;
 
   if (!clientId || !clientSecret) {
     return res.redirect(`${appUrl}/?oauth_error=${encodeURIComponent('Server is missing GOOGLE_CLIENT_SECRET for code exchange.')}`);
@@ -449,14 +449,21 @@ app.get('/api/integrations/google/callback', async (req: Request, res: Response)
     }
 
     const tokenData = (await tokenRes.json()) as any;
-    await storeUserConnectorToken({
-      userId,
-      connectorId,
-      accessToken: tokenData.access_token,
-      refreshToken: tokenData.refresh_token,
-      scopes: CONNECTORS[connectorId]?.requiredScopes || [],
-      expiresIn: tokenData.expires_in
-    });
+    if (typeof tokenData.access_token !== 'string' || typeof tokenData.scope !== 'string') {
+      throw new Error('Missing token or granted scopes');
+    }
+    const grantedScopes = tokenData.scope.split(/\s+/);
+    const ids = connectorId === 'all' ? ['gmail', 'google_calendar', 'google_drive'] : [connectorId];
+    if (!ids.every(id => ['gmail', 'google_calendar', 'google_drive'].includes(id) &&
+      CONNECTORS[id].requiredScopes.every(scope => grantedScopes.includes(scope)))) {
+      return res.redirect(`${appUrl}/?oauth_error=Required%20permissions%20were%20not%20granted`);
+    }
+    for (const id of ids) {
+      await storeUserConnectorToken({
+        userId, connectorId: id, accessToken: tokenData.access_token,
+        refreshToken: tokenData.refresh_token, scopes: grantedScopes, expiresIn: tokenData.expires_in
+      });
+    }
 
     logger.info('OAuth', `OAuth callback completed for user "${userId}" connector "${connectorId}"`);
     return res.redirect(`${appUrl}/?integration_connected=${connectorId}`);
